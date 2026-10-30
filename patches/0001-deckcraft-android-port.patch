@@ -1,88 +1,72 @@
-diff --git a/crates/ui-egui/src/dialogs.rs b/crates/ui-egui/src/dialogs.rs
-index 73ce180..c98b62c 100644
---- a/crates/ui-egui/src/dialogs.rs
-+++ b/crates/ui-egui/src/dialogs.rs
-@@ -440,21 +440,23 @@ fn body(app: &mut SlideApp, ui: &mut Ui, d: &mut Dialog) -> bool {
-                     _ => ("png", false),
-                 };
-                 let suggested = format!("{name}.{ext}");
--                if let Some(pick) = app.services.pick_save.as_mut() {
--                    if let Some(path) = pick(&suggested) {
--                        let mut params = json!({"path": path, "all": all});
--                        if ext == "pdf"
--                            && let (Some(o), Some(extra)) = (params.as_object_mut(), pdf_params.as_object())
--                        {
--                            o.extend(extra.clone());
--                        }
--                        let r = app.session.execute("file.export", &params);
--                        match r {
--                            Ok(_) => app.set_status(format!("Exported {path}")),
--                            Err(e) => app.set_status(e.to_string()),
--                        }
-+                // A host with a save dialog answers with a path and the export runs on the frame it
-+                // arrives. The presentation is untouched either way: an export is a copy, and it
-+                // must not become the deck's own file (`save_dialogs`).
-+                let (ext_owned, pdf_owned) = (ext.to_string(), pdf_params.clone());
-+                let asked = app.ask_save(&suggested, move |app, path| {
-+                    let mut params = json!({"path": path, "all": all});
-+                    if ext_owned == "pdf"
-+                        && let (Some(o), Some(extra)) = (params.as_object_mut(), pdf_owned.as_object())
-+                    {
-+                        o.extend(extra.clone());
-                     }
--                } else if let (Some(dl), Some(s)) = (app.services.download.as_mut(), app.session.active()) {
-+                    match app.session.execute("file.export", &params) {
-+                        Ok(_) => app.set_status(format!("Exported {path}")),
-+                        Err(e) => app.set_status(e.to_string()),
-+                    }
-+                });
-+                if !asked && let (Some(dl), Some(s)) = (app.services.download.as_mut(), app.session.active()) {
-                     let bytes = match ext {
-                         "png" | "jpg" => {
-                             let img = deckcraft_render::render_slide(
-diff --git a/crates/ui-egui/src/lib.rs b/crates/ui-egui/src/lib.rs
-index bef64a4..9c7f17b 100644
---- a/crates/ui-egui/src/lib.rs
-+++ b/crates/ui-egui/src/lib.rs
-@@ -17,6 +17,7 @@ pub mod menus;
- pub mod panes;
- pub mod ribbon;
- pub mod show;
-+mod save_dialogs;
- pub mod sorter;
- pub mod status;
- pub mod textures;
-@@ -47,6 +48,12 @@ pub struct Services {
-     pub pick_open: Option<PickFn>,
-     /// Save dialog with a suggested name → path.
-     pub pick_save: Option<PickFn>,
-+    /// A save dialog whose answer arrives later: what `pick_save` is for a host that cannot show a
-+    /// panel without ending the frame — the browser, and Android, where the picker is drawn with
-+    /// egui between frames. The host returns a receiver and the app runs what asked on the frame
-+    /// the path arrives ([`save_dialogs`]); an empty answer is a cancellation. A host with this
-+    /// must be preferred over handing it finished bytes, which cannot tell the app where they went.
-+    pub pick_save_async: Option<Box<dyn Fn(&str) -> Receiver<Option<String>>>>,
-     pub read: Option<ReadFn>,
-     pub write: Option<WriteFn>,
-     /// Asynchronous open dialog (web): the chosen file arrives through `inbox`.
-@@ -209,6 +216,8 @@ pub struct SlideApp {
-     pub(crate) notes_buf: (u64, usize, String),
-     /// Thumbnail pane drag (slide index, current drop index).
-     pub(crate) thumb_drag: Option<(usize, usize)>,
-+    /// The save dialog the host is showing, and what to do with its answer ([`save_dialogs`]).
-+    pending_save: Option<save_dialogs::PendingSave>,
- }
- 
- impl SlideApp {
-@@ -244,6 +253,7 @@ impl SlideApp {
-             quit_confirmed: false,
-             notes_buf: (0, usize::MAX, String::new()),
-             thumb_drag: None,
+diff --git a/Cargo.toml b/Cargo.toml
+index 07960495..a7dcaafd 100644
+--- a/Cargo.toml
++++ b/Cargo.toml
+@@ -123,4 +123,4 @@ egui_system_font_provider = { git = "https://github.com/storytold/egui.git", rev
+ eframe = { git = "https://github.com/storytold/egui.git", rev = "6d518fc799681571963842f95b55a6b68431b15a" }
+ egui_demo_lib = { git = "https://github.com/storytold/egui.git", rev = "6d518fc799681571963842f95b55a6b68431b15a" }
+ egui_inspection = { git = "https://github.com/storytold/egui.git", rev = "6d518fc799681571963842f95b55a6b68431b15a" }
+-winit = { git = "https://github.com/storytold/winit.git", rev = "a517b3846ee8457d84ee4975110bfda6797c44dc" }
++winit = { path = "vendor/winit" }
+diff --git a/crates/ui-egui/src/app.rs b/crates/ui-egui/src/app.rs
+index 8496d0ed..129f6b9f 100644
+--- a/crates/ui-egui/src/app.rs
++++ b/crates/ui-egui/src/app.rs
+@@ -45,6 +45,7 @@ impl SlideApp {
+             control_rx: None,
+             squiggles: Default::default(),
+             dialog: None,
 +            pending_save: None,
+             thesaurus_query: String::new(),
+             show: None,
+             anim_preview: None,
+@@ -219,6 +220,8 @@ impl SlideApp {
+             // Inbox results are host file bytes and do not need fonts or a painted frame. A
+             // window that starts hidden must still apply a file picked before its first UI pass.
+             self.drain_inbox();
++            // A save dialog that answered between frames: what asked runs now, with the path.
++            self.poll_save();
          }
-     }
- 
-@@ -414,18 +424,20 @@ impl SlideApp {
+         self.drain_screenshots();
+         // `raw_input_hook` ran before this logic pass. This is normally a no-op now that
+diff --git a/crates/ui-egui/src/app/files.rs b/crates/ui-egui/src/app/files.rs
+index 0f3c944f..a90944c4 100644
+--- a/crates/ui-egui/src/app/files.rs
++++ b/crates/ui-egui/src/app/files.rs
+@@ -144,19 +144,22 @@ impl SlideApp {
+             }
+         };
+         let suggested = self.suggested_name(ext);
+-        if let Some(pick) = self.services.pick_save.as_mut() {
+-            let Some(path) = pick(&suggested) else { return false };
++        // A host with a save dialog gets the path back, so the export runs on the frame it
++        // arrives. The presentation is untouched either way: an export is a copy, and it must not
++        // become the deck's own file.
++        let save_extra = extra.clone();
++        let asked = self.ask_save(&suggested, move |app, path| {
+             let mut params = json!({"path": path, "format": format, "all": all});
+-            if let (Some(o), Some(x)) = (params.as_object_mut(), extra.as_object()) {
++            if let (Some(o), Some(x)) = (params.as_object_mut(), save_extra.as_object()) {
+                 o.extend(x.clone());
+             }
+-            return match self.run("file.export", params) {
+-                Ok(_) => {
+-                    self.set_status(format!("Exported {path}"));
+-                    true
+-                }
+-                Err(_) => false,
+-            };
++            match app.run("file.export", params) {
++                Ok(_) => app.set_status(format!("Exported {path}")),
++                Err(_) => {}
++            }
++        });
++        if asked {
++            return true;
+         }
+         let Some(doc) = self.session.active().map(|d| d.doc.clone()) else { return false };
+         let bytes = match format {
+@@ -382,18 +385,20 @@ impl SlideApp {
          let name = self.session.active().map(|d| d.title()).unwrap_or_else(|| "Presentation".into());
          let ext = if format == "pptx" { "pptx" } else { "deckcraft" };
          let suggested = format!("{name}.{ext}");
@@ -96,17 +80,18 @@ index bef64a4..9c7f17b 100644
 -                    }
 -                    Err(e) => self.set_status(e.to_string()),
 -                }
+-            }
+-        } else if let Some(dl) = self.services.download.as_mut()
 +        // A host with a save dialog gets the path back, so the presentation learns which file it
 +        // is: the title bar follows, Save stops asking, and closing stops prompting. Only a host
 +        // with neither a blocking nor an asynchronous dialog falls through to the bytes below,
-+        // which cannot name what they wrote (`save_dialogs`).
++        // which cannot name what they wrote.
 +        let asked = self.ask_save(&suggested, |app, path| match app.session.execute("file.saveAs", &json!({"path": path})) {
 +            Ok(_) => {
 +                app.set_status(format!("Saved {path}"));
 +                app.ui.recent.retain(|p| p != path);
 +                app.ui.recent.insert(0, path.to_string());
-             }
--        } else if let Some(dl) = self.services.download.as_mut()
++            }
 +            Err(e) => app.set_status(e.to_string()),
 +        });
 +        if !asked
@@ -114,18 +99,71 @@ index bef64a4..9c7f17b 100644
              && let Some(d) = self.session.active()
          {
              match deckcraft_engine::cmd::file::save_bytes(&d.doc, ext) {
-@@ -555,6 +567,8 @@ impl SlideApp {
-         if self.fonts_ready {
-             self.drain_inbox();
-         }
-+        // A save dialog that answered between frames: what asked runs now, with the path.
-+        self.poll_save();
-         if !self.synthetic.is_empty() {
-             ctx.request_repaint();
-         }
+diff --git a/crates/ui-egui/src/backstage/info.rs b/crates/ui-egui/src/backstage/info.rs
+index 690e5524..1a480f0d 100644
+--- a/crates/ui-egui/src/backstage/info.rs
++++ b/crates/ui-egui/src/backstage/info.rs
+@@ -166,7 +166,7 @@ pub(super) fn save_as(app: &mut SlideApp, ui: &mut Ui, bs: &mut Backstage, out:
+             })
+             .response
+             .widget_info(|| egui::WidgetInfo::labeled(egui::Role::ComboBox, true, "Save as type"));
+-        let web = app.services.pick_save.is_none();
++        let web = app.services.pick_save.is_none() && app.services.pick_save_async.is_none();
+         let label = if web { "Download" } else { "Save" };
+         let save = ui.add(egui::Button::new(RichText::new(label).color(t.accent_text)).fill(t.accent).min_size(vec2(84.0, 26.0)));
+         if save.on_hover_text(if web { "Download the file" } else { "Choose where to save" }).clicked() {
+@@ -174,7 +174,9 @@ pub(super) fn save_as(app: &mut SlideApp, ui: &mut Ui, bs: &mut Backstage, out:
+             let done = if matches!(fmt, "pptx" | "deckcraft") {
+                 let before = app.session.active().map(|d| (d.path.clone(), d.is_dirty()));
+                 app.save_as_dialog(fmt);
+-                web || app.session.active().map(|d| (d.path.clone(), d.is_dirty())) != before
++                // An asynchronous host opens the picker now and answers between frames, so the path
++                // is not in the document yet; the picker floats above whatever is showing.
++                web || app.save_dialog_open() || app.session.active().map(|d| (d.path.clone(), d.is_dirty())) != before
+             } else {
+                 app.export_as(fmt, json!({}))
+             };
+diff --git a/crates/ui-egui/src/dialogs/body.rs b/crates/ui-egui/src/dialogs/body.rs
+index d458c263..b6c924b9 100644
+--- a/crates/ui-egui/src/dialogs/body.rs
++++ b/crates/ui-egui/src/dialogs/body.rs
+@@ -337,8 +337,10 @@ fn dlg_close(app: &mut SlideApp, ui: &mut Ui, _d: &mut Dialog) -> bool {
+             let save = ui.add(egui::Button::new(egui::RichText::new("Save").color(t.accent_text)).fill(t.accent).min_size(vec2(72.0, 24.0)));
+             if save.clicked() || ui.input(|i| i.key_pressed(egui::Key::Enter)) {
+                 app.save();
+-                // In the browser a save is a download: the presentation stays "unsaved".
+-                let web = app.services.pick_save.is_none() && app.services.download.is_some();
++                // In the browser a save is a download: the presentation stays "unsaved". A host
++                // with an asynchronous picker is not the browser: it names the file, so wait for
++                // that rather than closing the document now.
++                let web = app.services.pick_save.is_none() && app.services.pick_save_async.is_none() && app.services.download.is_some();
+                 if web || app.session.active().is_some_and(|d| !d.is_dirty()) {
+                     run(app, "file.close", json!({}));
+                 }
+diff --git a/crates/ui-egui/src/lib.rs b/crates/ui-egui/src/lib.rs
+index 30b5a0cd..cd2482c1 100644
+--- a/crates/ui-egui/src/lib.rs
++++ b/crates/ui-egui/src/lib.rs
+@@ -18,6 +18,7 @@ pub mod media;
+ pub mod menus;
+ pub mod opening;
+ pub mod ribbon;
++mod save_dialogs;
+ pub mod settings;
+ pub mod show;
+ pub mod sorter;
+@@ -213,6 +214,8 @@ pub struct SlideApp {
+     /// Spelling squiggles, checked on a worker thread.
+     pub squiggles: squiggles::Squiggles,
+     pub dialog: Option<dialogs::Dialog>,
++    /// The save dialog the host is showing, and what to do with its answer ([`save_dialogs`]).
++    pub(crate) pending_save: Option<save_dialogs::PendingSave>,
+     /// The word looked up in the Thesaurus pane.
+     pub thesaurus_query: String,
+     pub show: Option<show::Show>,
 diff --git a/crates/ui-egui/src/save_dialogs.rs b/crates/ui-egui/src/save_dialogs.rs
 new file mode 100644
-index 0000000..5f3aace
+index 00000000..08e4bedc
 --- /dev/null
 +++ b/crates/ui-egui/src/save_dialogs.rs
 @@ -0,0 +1,86 @@
@@ -143,10 +181,10 @@ index 0000000..5f3aace
 +//! # The cost of not having it
 +//!
 +//! Handing the host finished *bytes* instead (the web `download` path) looks equivalent and is not:
-+//! the app is never told where the file went, so `DocState::path` stays `None` and the presentation
-+//! is still "Untitled" with unsaved changes — the title bar never changes, `Ctrl+S` asks for a
-+//! location again, and closing prompts to save what was just saved. Every save dialog in this app
-+//! goes through [`SlideApp::ask_save`] so that cannot happen.
++//! the app is never told where the file went, so the document keeps no path and the presentation is
++//! still "Untitled" with unsaved changes — the title bar never changes, Save asks for a location
++//! again, and closing prompts to save what was just saved. Every save dialog in this app goes
++//! through [`SlideApp::ask_save`] so that cannot happen.
 +//!
 +//! [`Services::pick_save_async`]: crate::Services::pick_save_async
 +//! [`Services::open_async`]: crate::Services::open_async
@@ -172,8 +210,8 @@ index 0000000..5f3aace
 +    /// on a later frame for an asynchronous one.
 +    ///
 +    /// Returns false when the host has neither, which is how a caller knows to fall back to its
-+    /// browser-download path — and only then, because a host with a picker must never be handed
-+    /// bytes it cannot name.
++    /// download path — and only then, because a host with a picker must never be handed bytes it
++    /// cannot name.
 +    pub(crate) fn ask_save(&mut self, suggested: &str, after: impl FnOnce(&mut SlideApp, &str) + 'static) -> bool {
 +        // One dialog at a time: the app has one pending action, and while it is waiting the answer
 +        // to it decides what happens.
@@ -215,3 +253,21 @@ index 0000000..5f3aace
 +        }
 +    }
 +}
+diff --git a/crates/ui-egui/src/services.rs b/crates/ui-egui/src/services.rs
+index 88f03ac2..d291577e 100644
+--- a/crates/ui-egui/src/services.rs
++++ b/crates/ui-egui/src/services.rs
+@@ -40,6 +40,13 @@ pub struct Services {
+     pub pick_open: Option<PickFn>,
+     /// Save dialog with a suggested name → path.
+     pub pick_save: Option<PickFn>,
++    /// A save dialog whose answer arrives later: what `pick_save` is for a host that cannot show a
++    /// panel without ending the frame — the browser, and Android, where the picker is drawn with
++    /// egui between frames. The host returns a receiver and the app runs what asked on the frame
++    /// the path arrives (the `save_dialogs` module); an empty answer is a cancellation. A host with
++    /// this must be preferred over handing it finished bytes, which cannot tell the app where they
++    /// went.
++    pub pick_save_async: Option<Box<dyn Fn(&str) -> std::sync::mpsc::Receiver<Option<String>>>>,
+     pub read: Option<ReadFn>,
+     pub write: Option<WriteFn>,
+     /// Asynchronous open dialog (web). The callback receives the purpose and the request id

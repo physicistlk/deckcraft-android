@@ -1,5 +1,74 @@
 # Changelog
 
+## v0.2.1 — 2026-10-30 (system clipboard)
+
+| | |
+|---|---|
+| APK | `deckcraft-0.12.0-arm64-v8a-20261030.apk` — sha256 in `SHA256SUMS.txt` beside the build |
+| Built from | upstream `storytold/deckcraft` @ `29f0f7772c47aa2bfb74fcbb0c4d3b1503300849` (v0.12.0) + this repository at the commit that built it |
+| Package | `ai.storyteller.deckcraft` — versionName `0.12.0`, versionCode `16780288`, minSdk 26, targetSdk 35 |
+| ABI | `arm64-v8a` only |
+| Signature | local test key (Mode A); not an official DeckCraft key |
+
+### Changed
+- **The system clipboard works for text (`src/clipboard.rs`).** Ctrl+C/X/V now produce
+  `Event::Copy`/`Cut`/`Paste` — the Android backend never reports modifiers, so `egui-winit` never
+  did — Paste reads `ClipboardManager` through JNI, and `OutputCommand::CopyText` is written back
+  with `ClipData.newPlainText`. Plain text only: the picture and HTML clipboard fields on `Services`
+  stay unset.
+
+### Unchanged
+- Everything in v0.2.0: the 0.12.0 rebase, asynchronous save dialogs, the in-app picker,
+  two-finger scrolling, modifier tracking, preferences written while the app runs and the theme
+  fixes.
+
+### Notes
+Built and verified on Linux with NDK r27.2.12479018, build-tools 36.0.0, JDK 21 and cargo-apk 0.10.0.
+The clipboard's JNI path was not exercised on a device as part of this build (no device was
+connected); its key handling and publishing are covered by unit tests.
+
+## v0.2.0 — 2026-10-28 (rebased on DeckCraft 0.12.0)
+
+| | |
+|---|---|
+| APK | `deckcraft-0.12.0-arm64-v8a-20261028.apk` — 52.5 MB (50.1 MiB), sha256 in `SHA256SUMS.txt` beside the build |
+| Built from | upstream `storytold/deckcraft` @ `29f0f7772c47aa2bfb74fcbb0c4d3b1503300849` (v0.12.0) + this repository at the commit that built it |
+| Package | `ai.storyteller.deckcraft` — versionName `0.12.0`, versionCode `16780288`, minSdk 26, targetSdk 35 |
+| ABI | `arm64-v8a` only |
+| Signature | local test key (Mode A); not an official DeckCraft key |
+| Fonts | `craft-fonts` @ `37827adc41fd165f9a9234ac40f94dbad353aa69`, embedded and required at build time |
+
+### Changed
+- **Upstream moved from 0.5.0 to 0.12.0**, seven minor releases of editing, layout, export and UI
+  work. The port follows the current `Services`, `open_async(purpose, id)`, `InboxEvent`,
+  `raw_input_hook(ctx)` and egui 0.37 APIs instead of the 0.5.0 shapes.
+- **The asynchronous save seam was re-applied to the 0.12 tree.** `pick_save_async` still lives in
+  `Services`, but the save code moved from `dialogs.rs`/`lib.rs` to `app/files.rs` and
+  `save_dialogs.rs`; the patch follows it. Save As and every Export ask for a path between frames
+  and run on the frame the answer arrives, so the presentation learns its own file.
+- **Backstage's Save/Download wording and the close dialog now know about the asynchronous
+  picker.** An asynchronous host counts as having a save dialog, and closing a dirty presentation
+  waits for the save it just started instead of treating it as a browser download.
+- **Fonts are embedded from `craft-fonts`.** 0.12's font build input is required for a release
+  build; the port's Linux script sets `CRAFT_FONTS_REQUIRED=1`, so a fontless APK cannot be
+  mistaken for a good one.
+- **The vendored winit is the fork revision upstream 0.12 pins**, with the same Android wheel and
+  hover patches re-applied. `Cargo.toml` pointing at `vendor/winit` is the tracked upstream change
+  that carries it.
+- Added the Linux build/verify scripts (`scripts/*-linux.sh`); `build-apk-linux.sh` now verifies
+  the artifact it produced.
+
+### Unchanged
+- Two-finger scrolling, modifier tracking (including Ctrl from the physical key), preferences
+  written atomically while the app runs, the `Android/media/<package>/Fonts` folder, the in-app
+  picker and the `config_changes` / fullscreen theme fixes.
+
+### Notes
+Built and verified on Linux with NDK r27.2.12479018, build-tools 35.0.0, JDK 21, cargo-apk 0.10.0
+and `CRAFT_FONTS_REQUIRED=1`. Runtime behaviour was not re-tested on a device as part of this build.
+The crate's 7 unit tests pass on the host with winit's Linux backends enabled:
+`cargo test -p deckcraft-android --lib --features winit/x11,winit/wayland,winit/wayland-dlopen,winit/wayland-csd-adwaita`.
+
 ## v0.1.2 — 2026-10-13 (Ctrl shortcuts)
 
 | | |

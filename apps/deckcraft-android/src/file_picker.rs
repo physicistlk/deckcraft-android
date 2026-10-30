@@ -26,7 +26,7 @@
 //!   handed only finished bytes and never learns where they went.
 //! - `Services::open_async` + `Services::inbox` and `pick_picture_async(inbox)`
 //!   (GridCraft, DeckCraft — the web seam): the shell polls the receiver, reads
-//!   the file and pushes `(name, bytes)` into the inbox.
+//!   the file and pushes an `InboxEvent` with the request id into the inbox.
 //! - `download(name, bytes)` (GridCraft, DeckCraft — the last resort): ask for a
 //!   path, then write the bytes there.
 //! - `rfd::AsyncFileDialog` (PdfCraft): the crate's own `crate::rfd` shim, which

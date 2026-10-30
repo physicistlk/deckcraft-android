@@ -2,8 +2,8 @@
 
 ## Upstream
 
-**DeckCraft** — <https://github.com/storytold/deckcraft> — pinned here at `be14248577b92059eb2b8c0c9460cceffbc1f01d`
-(version `0.5.0`).
+**DeckCraft** — <https://github.com/storytold/deckcraft> — pinned here at `29f0f7772c47aa2bfb74fcbb0c4d3b1503300849`
+(version `0.12.0`).
 
 Upstream is dual-licensed **Apache-2.0 OR MIT**. Both licence texts are reproduced in this
 repository as `LICENSE-APACHE` and `LICENSE-MIT`, as the licences require. DeckCraft and its

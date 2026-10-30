@@ -99,6 +99,7 @@ impl TouchScroll {
                 delta,
                 phase: egui::TouchPhase::Move,
                 modifiers,
+                source: egui::MouseWheelSource::Unknown,
             });
         } else if self.scrolling && !gesture {
             // The fingers lifted. The apps' momentum code coasts from this, and a flick that was
@@ -109,6 +110,7 @@ impl TouchScroll {
                 delta: egui::Vec2::ZERO,
                 phase: egui::TouchPhase::End,
                 modifiers,
+                source: egui::MouseWheelSource::Unknown,
             });
         }
 

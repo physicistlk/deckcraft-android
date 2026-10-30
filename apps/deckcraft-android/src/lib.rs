@@ -28,15 +28,15 @@
 //! DeckCraft's dialogs come in two shapes. `pick_open` and `pick_save` are the *blocking* ones —
 //! on the desktop they run `rfd::FileDialog` in line and return a path immediately. That cannot
 //! work here: a picker this shell has to *draw* needs the frame to end and come back, so a
-//! function that must return a path now can never show one. Leaving both `None` is what makes the
-//! app take its other branch, the one it already has for hosts that cannot block — the browser
-//! build's:
+//! function that must return a path now can never show one. The shell therefore fills the
+//! asynchronous halves and leaves the blocking ones `None`:
 //!
-//! - **Open / Insert picture / audio / video** — `open_async(purpose)` starts the pick and the
-//!   file arrives later through `Services::inbox` as `(name, bytes)`, exactly as a browser file
-//!   input delivers it.
-//! - **Save As / Export** — `download(name, bytes)` is handed the finished file, exactly as the
-//!   browser is. Here it asks for a path first and writes there.
+//! - **Open / Insert picture / audio / video** — `open_async(purpose, id)` starts the pick and
+//!   the file arrives later through `Services::inbox` as an `InboxEvent` carrying that id,
+//!   exactly as a browser file input delivers it.
+//! - **Save As / Export** — `pick_save_async(name)` opens the picker and answers with a path
+//!   between frames, so the app records the file it saved to (`save_dialogs.rs` in upstream).
+//!   `download(name, bytes)` remains as the last-resort path for hosts with no picker.
 //!
 //! # Feature notes
 //!
@@ -52,13 +52,6 @@
 //!
 //! Honest gaps, not oversights:
 //!
-//! - **A saved presentation does not learn its own path.** The desktop's `pick_save` hands the
-//!   path back to the app, which records it, so the next Ctrl+S writes silently to the same file.
-//!   This shell is given the bytes instead (that is the seam), so the write happens here and the
-//!   session keeps `path = None`: the next Save asks again. The bytes written are the deck's, so
-//!   nothing is lost — it is the remembering that is missing. Anything else would have to guess
-//!   which presentation was active when the user answered, and saving the wrong deck over a file
-//!   is worse than asking twice.
 //! - **No audio.** `Services::audio_out` stays `None` (`cpal` has no Android backend here), so
 //!   inserted audio and the sound in a deck's own video play silently — the same quiet the desktop
 //!   gives under `DECKCRAFT_NO_AUDIO`. Everything else about media works: the codecs are pure
@@ -78,9 +71,11 @@ use std::sync::{Arc, Mutex, OnceLock};
 use std::time::Duration;
 
 use deckcraft_engine::Session;
-use deckcraft_ui_egui::{Inbox, Services, SlideApp, UiState};
+use deckcraft_ui_egui::{Inbox, InboxEvent, InboxFile, Services, SlideApp, UiState};
 
+mod clipboard;
 mod file_picker;
+mod intents;
 mod modifiers;
 mod prefs_watch;
 mod touch_scroll;
@@ -167,36 +162,37 @@ fn open_extensions(purpose: &str) -> Option<Vec<String>> {
 }
 
 /// Wait for a pick off the UI thread, read what it names and hand it to the app the way a browser
-/// file input does: `(name, bytes)` pushed into the inbox the app drains each frame.
+/// file input does: an [`InboxEvent::File`] carrying the request id pushed into the inbox the app
+/// drains each frame.
 ///
 /// The desktop's `pick_open` returns a path instead, and `open_async` exists precisely for hosts
 /// that cannot — on the web the bytes come from a `File` handle, here from the filesystem. This is
 /// also what feeds `open_or_insert_bytes`, so a picked picture, audio clip or video is inserted
 /// into the deck just as a desktop pick would insert it.
-fn deliver(inbox: Inbox, ctx: egui::Context, picks: Receiver<Vec<PathBuf>>, notices: Notices) {
+fn deliver(inbox: Inbox, ctx: egui::Context, picks: Receiver<Vec<PathBuf>>, notices: Notices, id: u64) {
     let reading = std::thread::Builder::new().name("file read".into()).spawn(move || {
-        let Ok(paths) = picks.recv() else {
-            return;
+        let delivered = match picks.recv() {
+            // One request is one file: the first path, as the desktop's blocking pick would use.
+            Ok(paths) => match paths.into_iter().next() {
+                Some(path) => match std::fs::read(&path) {
+                    Ok(bytes) => {
+                        let name = path.file_name().map(|n| n.to_string_lossy().into_owned()).unwrap_or_default();
+                        log::info!("read {} ({} bytes)", path.display(), bytes.len());
+                        InboxEvent::File(InboxFile { id, name, bytes })
+                    }
+                    Err(e) => {
+                        log::error!("couldn't read {}: {e}", path.display());
+                        notices.lock().unwrap_or_else(std::sync::PoisonError::into_inner).push(format!("Couldn't read {}: {e}", path.display()));
+                        InboxEvent::Cancelled { id }
+                    }
+                },
+                None => InboxEvent::Cancelled { id },
+            },
+            Err(_) => InboxEvent::Cancelled { id },
         };
-        let mut arrived = false;
-        for path in paths {
-            match std::fs::read(&path) {
-                Ok(bytes) => {
-                    let name = path.file_name().map(|n| n.to_string_lossy().into_owned()).unwrap_or_default();
-                    log::info!("read {} ({} bytes)", path.display(), bytes.len());
-                    inbox.lock().unwrap_or_else(std::sync::PoisonError::into_inner).push((name, bytes));
-                    arrived = true;
-                }
-                Err(e) => {
-                    log::error!("couldn't read {}: {e}", path.display());
-                    notices.lock().unwrap_or_else(std::sync::PoisonError::into_inner).push(format!("Couldn't read {}: {e}", path.display()));
-                }
-            }
-        }
+        inbox.lock().unwrap_or_else(std::sync::PoisonError::into_inner).push(delivered);
         // The app is idle while it waits; wake it to use what arrived.
-        if arrived {
-            ctx.request_repaint();
-        }
+        ctx.request_repaint();
     });
     if let Err(e) = reading {
         log::error!("couldn't start the file-reading thread: {e}");
@@ -254,9 +250,9 @@ fn android_services(ctx: egui::Context, notices: Notices) -> Services {
         })),
         // File ▸ Open, and every Insert ▸ Picture/Audio/Video: the picked file arrives through the
         // inbox.
-        open_async: Some(Box::new(move |purpose: &str| {
+        open_async: Some(Box::new(move |purpose: &str, id: u64| {
             let picks = file_picker::request(file_picker::Kind::Open, "Open \u{2014} Android", open_extensions(purpose), None);
-            deliver(open_inbox.clone(), open_ctx.clone(), picks, open_notices.clone());
+            deliver(open_inbox.clone(), open_ctx.clone(), picks, open_notices.clone(), id);
         })),
         // File ▸ Save As, and every Export: ask where, then write the bytes there.
         download: Some(Box::new(move |name: &str, bytes: &[u8]| {
@@ -339,6 +335,10 @@ pub fn android_main(app: winit::platform::android::activity::AndroidApp) {
     let data_dir = app.internal_data_path().unwrap_or_else(|| PathBuf::from("."));
     let _ = std::fs::create_dir_all(&data_dir);
     let _ = DATA_DIR.set(data_dir.clone());
+    // The system clipboard goes through the same Activity handle as the rest of the
+    // platform (see `clipboard`).
+    clipboard::install(&app);
+    intents::install(&app);
     init_logging(&data_dir);
     log::info!("DeckCraft {} starting on Android; data dir {}", env!("CARGO_PKG_VERSION"), data_dir.display());
     // The app's external files directory: always readable and writable with no permission, so the
@@ -395,6 +395,7 @@ pub fn android_main(app: winit::platform::android::activity::AndroidApp) {
                 touch: touch_scroll::TouchScroll::default(),
                 prefs_ui: prefs_watch::Writer::new(ui_path, PREFS_EVERY),
                 prefs_engine: prefs_watch::Writer::new(engine_path, PREFS_EVERY),
+                pending_launch: intents::launch(),
             }))
         }),
     );
@@ -425,6 +426,7 @@ struct Shell {
     /// (see [`prefs_watch`]). One writer per file, because they are two files.
     prefs_ui: prefs_watch::Writer,
     prefs_engine: prefs_watch::Writer,
+    pending_launch: Option<intents::LaunchIntent>,
 }
 
 impl Shell {
@@ -486,12 +488,28 @@ impl Shell {
 
 impl eframe::App for Shell {
     fn logic(&mut self, ctx: &egui::Context, _frame: &mut eframe::Frame) {
+        if let Some(launch) = self.pending_launch.take() {
+            match launch {
+                intents::LaunchIntent::OpenFile(path) => { let _ = self.inner.open_path(path.to_string_lossy().as_ref()); }
+                intents::LaunchIntent::ImportText(text) => {
+                    let path = std::env::temp_dir().join("shared.txt");
+                    if std::fs::write(&path, text).is_ok() { let _ = self.inner.open_path(path.to_string_lossy().as_ref()); }
+                }
+            }
+        }
         self.inner.logic(ctx);
         save_prefs_if_due(&self.inner, &mut self.prefs_ui, &mut self.prefs_engine);
         self.quit_if_confirmed(ctx);
     }
 
-    fn raw_input_hook(&mut self, _ctx: &egui::Context, raw: &mut egui::RawInput) {
+    fn raw_input_hook(&mut self, ctx: &egui::Context, raw: &mut egui::RawInput) {
+        for event in &mut raw.events {
+            if let egui::Event::Key { key, .. } = event
+                && *key == egui::Key::BrowserBack
+            {
+                *key = egui::Key::Escape;
+            }
+        }
         // Before the app, so the frame it sees already has the modifiers a desktop backend would
         // have reported (see `modifiers`).
         let modifiers = self.modifiers.apply(raw);
@@ -499,13 +517,26 @@ impl eframe::App for Shell {
         // all, which is why nothing scrolled. A two-finger drag becomes one here (see
         // `touch_scroll`).
         self.touch.apply(raw, modifiers);
-        self.inner.raw_input_hook(raw);
+        let lost_focus = raw.viewports.values().any(|v| v.focused == Some(false));
+        if lost_focus {
+            let (ui_bytes, engine_bytes) = (prefs_ui_bytes(&self.inner), prefs_engine_bytes(&self.inner));
+            self.prefs_ui.store_now(&ui_bytes);
+            self.prefs_engine.store_now(&engine_bytes);
+        }
+        // Then the clipboard keys: egui-winit could not turn them into Copy/Cut/Paste
+        // because the backend never reports Modifiers, so they are still ordinary key
+        // presses here (see `clipboard::shortcuts`).
+        clipboard::shortcuts(raw);
+        self.inner.raw_input_hook(ctx, raw);
     }
 
     fn ui(&mut self, ui: &mut egui::Ui, _frame: &mut eframe::Frame) {
         self.inner.ui(ui);
         // After the app, so the picker and the report float above the slide.
         file_picker::draw(ui.ctx());
+        // After the app: this is the one place that sees egui's CopyText before egui-winit
+        // consumes it, and puts it on the system clipboard (see `clipboard::publish`).
+        clipboard::publish(ui.ctx());
         self.show_notices(ui.ctx());
         // The quit dialog's OK is a click during this call: check here, in the same frame, rather
         // than leaving it to the next `logic` — no repaint is guaranteed after a click.
@@ -516,5 +547,30 @@ impl eframe::App for Shell {
         let (ui_bytes, engine_bytes) = (prefs_ui_bytes(&self.inner), prefs_engine_bytes(&self.inner));
         self.prefs_ui.store_now(&ui_bytes);
         self.prefs_engine.store_now(&engine_bytes);
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    /// The vendored winit is what lets a mouse or a trackpad scroll an Android build at all.
+    /// Upstream's Android backend drops `MotionAction::Scroll` and `HoverMove` (they fall into
+    /// `_ => None // TODO mouse events`), so a dependency bump that resolves winit from crates.io
+    /// again would silently take the wheel away: re-apply the patch, or drop the copy once a winit
+    /// 0.30 release has it (vendor/README.md).
+    #[test]
+    fn winit_carries_the_android_scroll_and_hover_patch() {
+        let root = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("../..");
+        let lock = std::fs::read_to_string(root.join("Cargo.lock")).unwrap();
+        let winit = lock.split("[[package]]").find(|p| p.contains("\nname = \"winit\"\n")).expect("winit is in Cargo.lock");
+        assert!(!winit.contains("\nsource = "), "winit must resolve to vendor/winit, not:{winit}");
+
+        let android = std::fs::read_to_string(root.join("vendor/winit/src/platform_impl/android/mod.rs")).unwrap();
+        let scroll = "MotionAction::Scroll => {";
+        let hover = "MotionAction::HoverMove => {";
+        assert!(android.contains(scroll), "vendor/winit lost its {scroll} patch");
+        assert!(android.contains(hover), "vendor/winit lost its {hover} patch");
+        assert!(android.contains("event::WindowEvent::MouseWheel"), "the scroll patch must emit a wheel event");
+        assert!(android.contains("event::WindowEvent::CursorMoved { device_id, position }"), "and must set the pointer position, or an app that only scrolls when hovered ignores it");
+        assert!(android.contains("event::WindowEvent::CursorMoved"), "the hover patch must move the pointer");
     }
 }

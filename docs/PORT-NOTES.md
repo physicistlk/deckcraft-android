@@ -1,13 +1,83 @@
 # Port notes — DeckCraft on Android
 
 Upstream: [`storytold/deckcraft`](https://github.com/storytold/deckcraft) @
-`be14248577b92059eb2b8c0c9460cceffbc1f01d` (v0.5.0)
-Published APK: `deckcraft-0.5.0-arm64-v8a-v3.apk`
+`29f0f7772c47aa2bfb74fcbb0c4d3b1503300849` (v0.12.0)
+Published APK: `deckcraft-0.12.0-arm64-v8a-20261028.apk`
 
-The port is `apps/deckcraft-android/` (`src/lib.rs` 509 lines, `src/file_picker.rs` 403,
-`src/modifiers.rs` 202, `src/prefs_watch.rs` 134) plus **3 upstream files** — the same save-dialog seam
-GridCraft needed (`save_dialogs.rs`, new), because the same `pick_save` shape cannot work on a host
-that draws its own picker between frames.
+The port is `apps/deckcraft-android/` (`src/lib.rs`, `src/file_picker.rs`, `src/modifiers.rs`,
+`src/prefs_watch.rs`, `src/touch_scroll.rs`, `src/clipboard.rs`) plus a small upstream seam: the
+asynchronous save-dialog support from §2, made of `save_dialogs.rs` (new) and the
+`Services`/frame-loop changes that drive it.
+
+## 2026-10-30 — Trackpad wheel + pen hover (already in the vendored winit)
+
+This port already shipped the vendored, patched winit, whose Android backend forwards
+`MotionAction::Scroll` and `MotionAction::HoverMove`. No change this milestone.
+
+## 2026-10-30 — Flush preferences on suspend (`raw_input_hook`)
+
+A lost-focus frame now writes `ui.json` and `prefs.json` with `store_now`, so a swipe from
+Recents (or a paused Activity being killed) no longer takes the recent-documents list and
+window state with it.
+
+## 2026-10-30 — Open-with and share intents (`src/intents.rs`)
+
+**The complaint:** a presentation tapped in a file manager, or shared from another app, never reached
+DeckCraft; and there was no way to hand the current presentation to another app.
+
+`src/intents.rs` covers the half that does not need `startActivityForResult`:
+
+- **Incoming `ACTION_VIEW`** — the launching URI is read at startup and copied out of a
+  `content://` URI into the cache directory; the shell opens it on its first frame
+  (`SlideApp::open_path`).
+- **Incoming `ACTION_SEND`** — `EXTRA_TEXT` and `EXTRA_STREAM` are handled the same way.
+- **Outgoing `ACTION_SEND`** — `intents::share_text` starts a chooser; `share_file` is provided but
+  needs a `FileProvider` entry to work on Android 7+.
+
+The launching intent is read in `android_main` and consumed once in `Shell::logic`.
+
+**Scope:** opening a file handed to the app, and sharing text. SAF pickers remain deferred (no
+`startActivityForResult` in `android-activity` 0.6.1); the in-app picker is still the way to open
+or save.
+
+**Checked:** the module's host test passes, the crate compiles for `aarch64-linux-android`, and the
+host suite is 17/17. The JNI intent path has not run on a device.
+
+## 2026-10-30 — The system clipboard (`src/clipboard.rs`)
+
+**The complaint:** copy and paste worked only *inside* the app. Text copied in another app could not
+be pasted into a presentation, and copying from DeckCraft left nothing to paste elsewhere.
+
+Two gaps, both closed here:
+
+- **winit's Android backend has no clipboard**, so `egui-winit` fell back to its in-app simulated
+  clipboard and nothing crossed the app boundary.
+- **The backend never reports modifiers** (§4), and `egui-winit` decides Ctrl+C/X/V is a clipboard
+  shortcut from its own modifier state. On Android those three keys therefore arrived as ordinary
+  `Event::Key` presses, and `Event::Copy`/`Cut`/`Paste` were never produced.
+
+`src/clipboard.rs` supplies the four pieces:
+
+- `install(&app)` — the Activity handle, per thread, captured before `run_native`.
+- `shortcuts(raw)` — in `raw_input_hook`, after the touch bridge: a plain Ctrl+C/X/V becomes
+  `Event::Copy`/`Cut`/`Paste` and the key press is consumed, as on the desktop. Ctrl+V reads the
+  **system** clipboard; an empty clip pushes no event. Ctrl+Shift/Ctrl+Alt variants go to the app.
+- `publish(ctx)` — after the app's `ui`: every `OutputCommand::CopyText` this frame is written with
+  `ClipData.newPlainText` + `setPrimaryClip`, and the command is left in place so egui-winit's
+  in-app copy still happens.
+- `text()` — the read half, used by `shortcuts`; DeckCraft has no `Services::clipboard_text`, so its
+  paste paths are the key event and the text edits themselves.
+
+The JNI side is `ClipboardManager`/`ClipData` directly. A clipboard read that Android refuses
+(Android 10+ allows reads only while focused) is logged and cleared, and answers "nothing"; a
+non-text clip answers the same.
+
+**Scope:** plain text. The picture and HTML clipboard fields on `Services` stay unset, so pasting a
+picture copied in another app is not part of this change.
+
+**Checked:** eight unit tests (rewriting, empty clip, Shift/Alt pass-through, release, publish) pass
+on the host, and the crate compiles for `aarch64-linux-android`. The JNI path has not run on a
+device — none was connected for this build.
 
 ## 1. The shell crate
 
@@ -35,8 +105,9 @@ and closing prompts to save what was just saved.
 The upstream patch adds the asynchronous seam, `Services::pick_save_async(&str) ->
 Receiver<Option<String>>` (an empty answer is a cancellation), and a new
 `crates/ui-egui/src/save_dialogs.rs` that holds the pending save and runs what asked on the frame the
-path arrives; `poll_save()` is driven from the frame loop. Save As goes through it, and so does
-**Export**:
+path arrives; `poll_save()` is driven from `SlideApp::logic`. Save As goes through it, and so does
+**Export**. The 0.12 tree keeps the save code in `app/files.rs` rather than the old `dialogs.rs`, so
+the patch follows it there.
 
 - **Export** used to run inside the same call as the dialog. It now asks and exports on the answer
   frame, merging the PDF options into the parameters as before. The presentation is untouched either
@@ -92,13 +163,18 @@ bar on Android 15; winit 0.30 has no safe-area API) and `res/mipmap-*` the launc
 track is therefore silent on the tablet — the code path reports what it cannot do rather than failing
 at runtime.
 
-## Upstream files this port changes (3)
+## Upstream files this port changes (7 tracked files, 1 new)
 
 | File | Change | Why |
 |---|---|---|
+| `Cargo.toml` | winit resolves from `vendor/winit` instead of the git revision | the fork plus the Android wheel/hover patch (see the scrolling note below) |
 | `crates/ui-egui/src/save_dialogs.rs` | **new** — pending save + what to run when the path arrives | a host that draws its own picker cannot return a path in the same call (§2) |
-| `crates/ui-egui/src/lib.rs` | `Services::pick_save_async`, `pending_save`, `ask_save`, `poll_save`; Save As asks asynchronously; recent list updated on save | §2 |
-| `crates/ui-egui/src/dialogs.rs` | Export asks asynchronously and exports on the answer frame | §2 |
+| `crates/ui-egui/src/services.rs` | `Services::pick_save_async` | §2 |
+| `crates/ui-egui/src/lib.rs` | `pending_save` field and the `save_dialogs` module | §2 |
+| `crates/ui-egui/src/app.rs` | initialise `pending_save`; call `poll_save()` from `logic` | §2 |
+| `crates/ui-egui/src/app/files.rs` | Save As and Export ask asynchronously; recent list updated on save | §2 |
+| `crates/ui-egui/src/backstage/info.rs` | an asynchronous save counts as having a save dialog (label, close on ask) | §2 |
+| `crates/ui-egui/src/dialogs/body.rs` | an asynchronous save is not the web download path when closing | §2 |
 
 ## 2026-10-13 — Two-finger scrolling (and the wheel Android never sends)
 
@@ -194,7 +270,7 @@ and `cargo` regenerates it on the first build. The patch contains only changes t
 
 ## Not verified here
 
-The APK attached to **v0.1.2** was built from exactly this tree on 2026-10-13 (upstream pin + the patch + the port crate), and the checks in the README's verification table were run against it. What that does *not* buy is a runtime claim: it was not launched on a device or emulator as part of publishing, so every behavioural statement below rests on the hand-testing the porter did on an arm64 tablet. The fixes came from
+The APK attached to **v0.2.0** was built from exactly this tree on 2026-10-28 (upstream pin + the patch + the port crate + `craft-fonts` at its pin), and the checks in the README's verification table were run against it. What that does *not* buy is a runtime claim: it was not launched on a device or emulator as part of this build, so every behavioural statement below rests on the hand-testing the porter did on an arm64 tablet for earlier releases. The fixes came from
 the porter's hand-testing on an arm64 tablet — the bugs they fix were reported there — and there is no
 automated device test here, so "verified" in the README means the source-side checks listed there plus
 that testing.
