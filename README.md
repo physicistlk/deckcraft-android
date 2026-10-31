@@ -41,7 +41,7 @@ from it; without the fonts a release build is refused).
 ```bash
 git clone https://github.com/storytold/deckcraft.git
 cd deckcraft
-git fetch --depth 1 origin 29f0f7772c47aa2bfb74fcbb0c4d3b1503300849
+git fetch --depth 1 origin 4ce29446
 git checkout FETCH_HEAD                        # the exact commit this port targets
 git apply -3 /path/to/0001-deckcraft-android-port.patch
 cp -r /path/to/deckcraft-android/apps/deckcraft-android apps/
@@ -91,12 +91,12 @@ device or emulator as part of this build.
 
 | Claim | How it was checked | Result |
 |---|---|---|
-| `patches/…patch` applies to a clean checkout of the pin | fresh `git worktree` at `29f0f7772c47aa2bfb74fcbb0c4d3b1503300849` + `git apply --check` | ✅ applies cleanly |
+| `patches/…patch` applies to a clean checkout of the pin | fresh `git worktree` at `4ce29446` + `git apply --check` | ✅ applies cleanly |
 | The port crate compiles for Android | `cargo check -p deckcraft-android --target aarch64-linux-android`, with `CRAFT_FONTS_REQUIRED=1` | ✅ exit 0 |
 | The port crate's own tests | `cargo test -p deckcraft-android --lib` with winit's host backends enabled (see `CHANGELOG.md`) | ✅ 16 pass |
 | APK is signed and is the right artifact | `apksigner verify --verbose`, `aapt2 dump badging`, `unzip -l`, `llvm-nm`, sha256 | ✅ v2/v3 signatures true, `native-code: 'arm64-v8a'`, package `ai.storyteller.deckcraft` |
 | Presentation fonts are embedded | the generated font table has 57 `CraftFont` entries; font data is present in the shipped `.so` | ✅ fonts from `craft-fonts` @ `37827adc` |
-| The shipped tree matches the built tree | fresh v0.12.0 worktree, patch applied, port crate and `vendor/` copied in; every source file compared by SHA-256 | ✅ byte-identical |
+| The shipped tree matches the built tree | fresh v0.13.1 worktree, patch applied, port crate and `vendor/` copied in; every source file compared by SHA-256 | ✅ byte-identical |
 | Behaviour on real hardware | not run: no device was connected during this build | ⚠️ unverified |
 
 **Before trusting the APK:** the source side is verified as listed above; runtime behaviour rests

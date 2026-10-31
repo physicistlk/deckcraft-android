@@ -378,7 +378,7 @@ impl<T: 'static> EventLoop<T> {
                 let device_id = event::DeviceId(DeviceId(motion_event.device_id()));
 
                 match motion_event.action() {
-                    // DeckCraft patch: a mouse wheel, or a touchpad's two-finger scroll, arrives as
+                    // WordCraft patch: a mouse wheel, or a touchpad's two-finger scroll, arrives as
                     // `MotionAction::Scroll` and fell into the `_ => None` below, so with a pointer
                     // device an Android app could not be scrolled at all. `MouseScrollDelta` is
                     // documented as the direction the *content* moves, and `AXIS_VSCROLL` grows as
@@ -429,7 +429,7 @@ impl<T: 'static> EventLoop<T> {
                         );
                         return input_status;
                     }
-                    // DeckCraft patch: hover movement — a mouse or touchpad moving the pointer with
+                    // WordCraft patch: hover movement — a mouse or touchpad moving the pointer with
                     // no button down — was dropped with the rest, so the tracked pointer position
                     // never followed a mouse, and these apps only scroll while the pointer is over
                     // the canvas.

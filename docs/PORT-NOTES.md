@@ -1,7 +1,7 @@
 # Port notes — DeckCraft on Android
 
 Upstream: [`storytold/deckcraft`](https://github.com/storytold/deckcraft) @
-`29f0f7772c47aa2bfb74fcbb0c4d3b1503300849` (v0.12.0)
+`4ce29446` (v0.13.1)
 Published APK: `deckcraft-0.12.0-arm64-v8a-20261028.apk`
 
 The port is `apps/deckcraft-android/` (`src/lib.rs`, `src/file_picker.rs`, `src/modifiers.rs`,
