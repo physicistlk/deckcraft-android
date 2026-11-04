@@ -1,5 +1,19 @@
 # Changelog
 
+## v0.3.0 — 2026-11-04 (rebased on DeckCraft 0.15.0)
+
+| | |
+|---|---|
+| APK | `deckcraft-0.15.0-arm64-v8a-20261104.apk` — sha256 `7a13376511f43b9b31f0696f09f8fbf490397261090a4e5ed8fb5eee76615bfd` |
+| Built from | upstream `storytold/deckcraft` @ `3e178d8f5a59c787a6a53a7ed0f052b3e4a1489f` (v0.15.0, tag `v0.15.0`) + regenerated `patches/0001-deckcraft-android-port.patch` |
+| Package | `ai.storyteller.deckcraft` — versionName `0.15.0`, versionCode `16781056`, minSdk 26, targetSdk 35 |
+| ABI | `arm64-v8a` only |
+| Signature | local test key (Mode A); not an official DeckCraft key |
+
+### Changed
+- **Rebased onto DeckCraft 0.15.0** (pin `3e178d8f`): the port patch was regenerated from the v0.15.0 tree (9 files: Cargo.lock, Cargo.toml, ui-egui app.rs / app/files.rs / backstage/info.rs / dialogs/body.rs / lib.rs / save_dialogs.rs (new) / services.rs) and verified with `git apply --check` against a pristine `v0.15.0` archive.
+- Build verified on Linux with NDK r27.2.12479018, build-tools 35.0.0, JDK 25, cargo-apk 0.10.0; `verify-apk-linux.sh` passed (signature, AArch64, 16 KB LOAD alignment, `android_main`/`ANativeActivity_onCreate` exports).
+
 ## v0.2.1 — 2026-10-30 (system clipboard)
 
 | | |

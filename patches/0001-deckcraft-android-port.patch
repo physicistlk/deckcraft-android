@@ -1,5 +1,38 @@
+diff --git a/Cargo.lock b/Cargo.lock
+index c86df354..dfacee75 100644
+--- a/Cargo.lock
++++ b/Cargo.lock
+@@ -1004,6 +1004,20 @@ dependencies = [
+  "winresource",
+ ]
+ 
++[[package]]
++name = "deckcraft-android"
++version = "0.15.0"
++dependencies = [
++ "deckcraft-engine",
++ "deckcraft-ui-egui",
++ "eframe",
++ "egui",
++ "jni 0.22.4",
++ "log",
++ "serde_json",
++ "winit",
++]
++
+ [[package]]
+ name = "deckcraft-anim"
+ version = "0.15.0"
+@@ -5972,7 +5986,6 @@ checksum = "589f6da84c646204747d1270a2a5661ea66ed1cced2631d546fdfb155959f9ec"
+ [[package]]
+ name = "winit"
+ version = "0.30.13"
+-source = "git+https://github.com/storytold/winit.git?rev=a517b3846ee8457d84ee4975110bfda6797c44dc#a517b3846ee8457d84ee4975110bfda6797c44dc"
+ dependencies = [
+  "ahash",
+  "android-activity",
 diff --git a/Cargo.toml b/Cargo.toml
-index 0e0172b6..4cfea136 100644
+index ab2b7429..52699cf3 100644
 --- a/Cargo.toml
 +++ b/Cargo.toml
 @@ -124,4 +124,4 @@ egui_system_font_provider = { git = "https://github.com/storytold/egui.git", rev
@@ -9,10 +42,10 @@ index 0e0172b6..4cfea136 100644
 -winit = { git = "https://github.com/storytold/winit.git", rev = "a517b3846ee8457d84ee4975110bfda6797c44dc" }
 +winit = { path = "vendor/winit" }
 diff --git a/crates/ui-egui/src/app.rs b/crates/ui-egui/src/app.rs
-index 8496d0ed..129f6b9f 100644
+index 7c9c373a..1f882f63 100644
 --- a/crates/ui-egui/src/app.rs
 +++ b/crates/ui-egui/src/app.rs
-@@ -45,6 +45,7 @@ impl SlideApp {
+@@ -50,6 +50,7 @@ impl SlideApp {
              control_rx: None,
              squiggles: Default::default(),
              dialog: None,
@@ -20,7 +53,7 @@ index 8496d0ed..129f6b9f 100644
              thesaurus_query: String::new(),
              show: None,
              anim_preview: None,
-@@ -219,6 +220,8 @@ impl SlideApp {
+@@ -225,6 +226,8 @@ impl SlideApp {
              // Inbox results are host file bytes and do not need fonts or a painted frame. A
              // window that starts hidden must still apply a file picked before its first UI pass.
              self.drain_inbox();
@@ -30,10 +63,10 @@ index 8496d0ed..129f6b9f 100644
          self.drain_screenshots();
          // `raw_input_hook` ran before this logic pass. This is normally a no-op now that
 diff --git a/crates/ui-egui/src/app/files.rs b/crates/ui-egui/src/app/files.rs
-index 0f3c944f..a90944c4 100644
+index 1e846e0d..ccfe6b1b 100644
 --- a/crates/ui-egui/src/app/files.rs
 +++ b/crates/ui-egui/src/app/files.rs
-@@ -144,19 +144,22 @@ impl SlideApp {
+@@ -204,19 +204,22 @@ impl SlideApp {
              }
          };
          let suggested = self.suggested_name(ext);
@@ -66,7 +99,7 @@ index 0f3c944f..a90944c4 100644
          }
          let Some(doc) = self.session.active().map(|d| d.doc.clone()) else { return false };
          let bytes = match format {
-@@ -382,18 +385,20 @@ impl SlideApp {
+@@ -451,18 +454,20 @@ impl SlideApp {
          let name = self.session.active().map(|d| d.title()).unwrap_or_else(|| "Presentation".into());
          let ext = if format == "pptx" { "pptx" } else { "deckcraft" };
          let suggested = format!("{name}.{ext}");
@@ -100,7 +133,7 @@ index 0f3c944f..a90944c4 100644
          {
              match deckcraft_engine::cmd::file::save_bytes(&d.doc, ext) {
 diff --git a/crates/ui-egui/src/backstage/info.rs b/crates/ui-egui/src/backstage/info.rs
-index 690e5524..1a480f0d 100644
+index 0dce7474..4fd8487f 100644
 --- a/crates/ui-egui/src/backstage/info.rs
 +++ b/crates/ui-egui/src/backstage/info.rs
 @@ -166,7 +166,7 @@ pub(super) fn save_as(app: &mut SlideApp, ui: &mut Ui, bs: &mut Backstage, out:
@@ -141,18 +174,18 @@ index cb1a879e..018c7809 100644
                      run(app, "file.close", json!({}));
                  }
 diff --git a/crates/ui-egui/src/lib.rs b/crates/ui-egui/src/lib.rs
-index 0937cac6..6f98701b 100644
+index 5f624d9c..526c886e 100644
 --- a/crates/ui-egui/src/lib.rs
 +++ b/crates/ui-egui/src/lib.rs
-@@ -27,6 +27,7 @@ pub mod media;
- pub mod menus;
+@@ -28,6 +28,7 @@ pub mod menus;
  pub mod opening;
+ pub mod presenter;
  pub mod ribbon;
 +mod save_dialogs;
  pub mod settings;
  pub mod show;
  pub mod sorter;
-@@ -228,6 +229,8 @@ pub struct SlideApp {
+@@ -229,6 +230,8 @@ pub struct SlideApp {
      /// Spelling squiggles, checked on a worker thread.
      pub squiggles: squiggles::Squiggles,
      pub dialog: Option<dialogs::Dialog>,
@@ -161,11 +194,104 @@ index 0937cac6..6f98701b 100644
      /// The word looked up in the Thesaurus pane.
      pub thesaurus_query: String,
      pub show: Option<show::Show>,
+diff --git a/crates/ui-egui/src/save_dialogs.rs b/crates/ui-egui/src/save_dialogs.rs
+new file mode 100644
+index 00000000..e004c497
+--- /dev/null
++++ b/crates/ui-egui/src/save_dialogs.rs
+@@ -0,0 +1,87 @@
++//! Save dialogs that don't hold the frame, and what the answer to them is for.
++//!
++//! # Why this exists
++//!
++//! `Services::pick_save` is the blocking shape: the host shows a panel and returns the chosen path
++//! in the same call. That works on the desktop (`rfd`) and cannot work on a host that draws its own
++//! picker between frames — the browser, and Android, where there is no native dialog to call at
++//! all. Those hosts return a receiver instead ([`crate::Services::pick_save_async`]) and the app
++//! does what the blocking call would have done on the frame the path arrives, exactly as
++//! [`crate::dialogs`] and [`crate::backstage`] already do for pictures and opening.
++//!
++//! # The cost of not having it
++//!
++//! Handing the host finished *bytes* instead (the web `download` path) looks equivalent and is not:
++//! the app is never told where the file went, so the document's path stays `None` and the
++//! presentation is still untitled with unsaved changes — the title bar never changes, `Ctrl+S` asks for a location
++//! again, and closing prompts to save what was just saved. Every save dialog in this app goes
++//! through [`SlideApp::ask_save`] so that cannot happen.
++
++use std::sync::mpsc::{Receiver, TryRecvError};
++
++use crate::SlideApp;
++
++/// A save dialog the host is showing: the answer arrives on `rx`, and `after` is what the blocking
++/// `pick_save` would have run with it.
++pub(crate) struct PendingSave {
++    rx: Receiver<Option<String>>,
++    after: Box<dyn FnOnce(&mut SlideApp, &str)>,
++}
++
++impl SlideApp {
++    /// Whether a save dialog is open (its answer hasn't arrived yet).
++    pub fn save_dialog_open(&self) -> bool {
++        self.pending_save.is_some()
++    }
++
++    /// Ask for a path to save to, and do `after` with it: straight away for a blocking host dialog,
++    /// on a later frame for an asynchronous one.
++    ///
++    /// Returns false when the host has neither, which is how a caller knows to fall back to its
++    /// browser-download path — and only then, because a host with a picker must never be handed
++    /// bytes it cannot name.
++    pub(crate) fn ask_save(&mut self, suggested: &str, after: impl FnOnce(&mut SlideApp, &str) + 'static) -> bool {
++        // One dialog at a time: the app has one pending action, and while it is waiting the answer
++        // to it decides what happens.
++        if self.pending_save.is_some() {
++            return true;
++        }
++        let sync_path = {
++            let Some(pick) = self.services.pick_save.as_mut() else {
++                // Fall through to the async host dialog below.
++                let Some(ask) = &self.services.pick_save_async else {
++                    return false;
++                };
++                self.pending_save = Some(PendingSave { rx: ask(suggested), after: Box::new(after) });
++                return true;
++            };
++            pick(suggested)
++        };
++        if let Some(path) = sync_path {
++            after(self, &path);
++        }
++        return true;
++    }
++
++    /// Use the answer, once there is one. Called every frame from [`SlideApp::logic`].
++    pub(crate) fn poll_save(&mut self) {
++        let Some(pending) = self.pending_save.as_ref() else {
++            return;
++        };
++        match pending.rx.try_recv() {
++            Err(TryRecvError::Empty) => {}
++            Ok(answer) => {
++                let Some(PendingSave { after, .. }) = self.pending_save.take() else {
++                    return;
++                };
++                // Nothing to do with a cancelled dialog, which is what an empty answer is.
++                if let Some(path) = answer {
++                    after(self, &path);
++                }
++            }
++            // The host went away without answering (its sender was dropped): a cancellation, not a
++            // dialog this app will wait on for ever.
++            Err(TryRecvError::Disconnected) => self.pending_save = None,
++        }
++    }
++}
 diff --git a/crates/ui-egui/src/services.rs b/crates/ui-egui/src/services.rs
-index 88f03ac2..d291577e 100644
+index fc8eb5d9..a1acbb6c 100644
 --- a/crates/ui-egui/src/services.rs
 +++ b/crates/ui-egui/src/services.rs
-@@ -40,6 +40,13 @@ pub struct Services {
+@@ -42,6 +42,13 @@ pub struct Services {
      pub pick_open: Option<PickFn>,
      /// Save dialog with a suggested name → path.
      pub pick_save: Option<PickFn>,
