@@ -1,3 +1,7 @@
+## 2026-11-05
+
+- Rebased onto DeckCraft 0.15.1 (pin 9bac60ff). Port patch regenerated. APK 0.15.1.
+
 # Changelog
 
 ## v0.3.0 — 2026-11-04 (rebased on DeckCraft 0.15.0)
