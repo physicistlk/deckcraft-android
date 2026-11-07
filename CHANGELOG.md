@@ -4,6 +4,8 @@
 
 # Changelog
 
+- Re-port to upstream v0.16.0 (commit a3e2254d). Port patch regenerated; resolved conflicts in app/files.rs, backstage/info.rs, dialogs/body.rs. APK `deckcraft-0.16.0-arm64-v8a-20261107.apk` (2026-11-07).
+
 ## v0.3.0 — 2026-11-04 (rebased on DeckCraft 0.15.0)
 
 | | |
