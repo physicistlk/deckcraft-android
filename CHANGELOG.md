@@ -1,3 +1,25 @@
+## v0.4.0 — 2026-11-09 (rebased on DeckCraft 0.17.0)
+
+| | |
+|---|---|
+| APK | `deckcraft-0.17.0-arm64-v8a-20261109.apk` — sha256 `f1708cc5137bc8820b275cdc071280f124d761dc10878dcf9ad706c8f7d461d4` |
+| Built from | upstream `storytold/deckcraft` @ `fc51f46c83067da0f0425204fb8a2e5270e114be` (v0.17.0, tag `v0.17.0`) + regenerated `patches/0001-deckcraft-android-port.patch` |
+| Package | `ai.storyteller.deckcraft` — versionName `0.17.0`, versionCode `16781568`, minSdk 26, targetSdk 35 |
+| ABI | `arm64-v8a` only |
+| Signature | local test key (Mode A); not an official DeckCraft key |
+
+### Changed
+- **Rebased onto DeckCraft 0.17.0** (pin `fc51f46c`). The previous round's patch applied cleanly with
+  `git apply -3` — no conflicts this time; `ask_save` / `pick_save_async` / `save_dialogs.rs` carried
+  over unchanged. Patch regenerated from the v0.17.0 tree with `git diff HEAD` (9 files: Cargo.lock,
+  Cargo.toml, ui-egui app.rs / app/files.rs / backstage/info.rs / dialogs/body.rs / lib.rs /
+  save_dialogs.rs (new) / services.rs) and verified with `git apply --check` against a pristine
+  `v0.17.0` worktree. Cargo.lock re-locked `deckcraft-android` at 0.17.0.
+- Verified: `cargo check -p deckcraft-android --target aarch64-linux-android` exit 0; release APK
+  built with NDK r27.2.12479018, build-tools 35.0.0, JDK 25; `scripts/verify-apk-linux.sh` passed
+  (v2/v3 signature, arm64-v8a, 16 KB LOAD alignment, `android_main` / `ANativeActivity_onCreate`
+  exports, manifest `lib_name`).
+
 ## 2026-11-05
 
 - Rebased onto DeckCraft 0.15.1 (pin 9bac60ff). Port patch regenerated. APK 0.15.1.
