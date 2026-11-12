@@ -1,14 +1,14 @@
 diff --git a/Cargo.lock b/Cargo.lock
-index 11cb01f1..831380ac 100644
+index 61cc7648..8b49859f 100644
 --- a/Cargo.lock
 +++ b/Cargo.lock
-@@ -1048,6 +1048,20 @@ dependencies = [
+@@ -1058,6 +1058,20 @@ dependencies = [
   "winresource",
  ]
  
 +[[package]]
 +name = "deckcraft-android"
-+version = "0.17.0"
++version = "0.18.1"
 +dependencies = [
 + "deckcraft-engine",
 + "deckcraft-ui-egui",
@@ -22,8 +22,8 @@ index 11cb01f1..831380ac 100644
 +
  [[package]]
  name = "deckcraft-anim"
- version = "0.17.0"
-@@ -6120,7 +6134,6 @@ checksum = "589f6da84c646204747d1270a2a5661ea66ed1cced2631d546fdfb155959f9ec"
+ version = "0.18.1"
+@@ -6106,7 +6120,6 @@ checksum = "589f6da84c646204747d1270a2a5661ea66ed1cced2631d546fdfb155959f9ec"
  [[package]]
  name = "winit"
  version = "0.30.13"
@@ -32,10 +32,10 @@ index 11cb01f1..831380ac 100644
   "ahash",
   "android-activity",
 diff --git a/Cargo.toml b/Cargo.toml
-index 3ddc9f06..08ac7eae 100644
+index 647c7af5..bc283cbd 100644
 --- a/Cargo.toml
 +++ b/Cargo.toml
-@@ -124,4 +124,4 @@ egui_system_font_provider = { git = "https://github.com/storytold/egui.git", rev
+@@ -122,4 +122,4 @@ egui_system_font_provider = { git = "https://github.com/storytold/egui.git", rev
  eframe = { git = "https://github.com/storytold/egui.git", rev = "6d518fc799681571963842f95b55a6b68431b15a" }
  egui_demo_lib = { git = "https://github.com/storytold/egui.git", rev = "6d518fc799681571963842f95b55a6b68431b15a" }
  egui_inspection = { git = "https://github.com/storytold/egui.git", rev = "6d518fc799681571963842f95b55a6b68431b15a" }

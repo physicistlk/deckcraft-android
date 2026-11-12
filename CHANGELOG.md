@@ -1,3 +1,27 @@
+## v0.5.0 — 2026-11-12 (rebased on DeckCraft 0.18.1)
+
+| | |
+|---|---|
+| APK | `deckcraft-0.18.1-arm64-v8a-20261112.apk` — sha256 `008b5fd05aaaf7dfee07debc9c27a9bf4edcbcb49c99648db21f2766271fb79d` |
+| Built from | upstream `storytold/deckcraft` @ `7cc73ab1895ed2e30c8afbcada20c70b9ea0a440` (v0.18.1, tag `v0.18.1`) + regenerated `patches/0001-deckcraft-android-port.patch` |
+| Package | `ai.storyteller.deckcraft` — versionName `0.18.1`, versionCode `16781825`, minSdk 26, targetSdk 35 |
+| ABI | `arm64-v8a` only |
+| Signature | local test key (Mode A); not an official DeckCraft key |
+
+### Changed
+- **Rebased onto DeckCraft 0.18.1** (pin `7cc73ab1`), which carries the 0.18.0 major bump plus the
+  0.18.1 patch. The previous round's patch applied cleanly with `git apply -3` — no conflicts;
+  the async save-dialog path (`ask_save` / `pick_save_async` / `save_dialogs.rs`) carried over
+  unchanged, and the Android shell still installs `pick_save_async`. Patch regenerated from the
+  v0.18.1 tree with `git diff HEAD` (9 files: Cargo.lock, Cargo.toml, ui-egui app.rs /
+  app/files.rs / backstage/info.rs / dialogs/body.rs / lib.rs / save_dialogs.rs (new) /
+  services.rs) and verified with `git apply --check` against a pristine `v0.18.1` worktree
+  (`PATCH APPLIES CLEAN`). Cargo.lock re-locked `deckcraft-android` at 0.18.1.
+- Verified: `cargo check -p deckcraft-android --target aarch64-linux-android` exit 0 (warnings only);
+  release APK built with NDK r27.2.12479018, build-tools 35.0.0, JDK 25;
+  `scripts/verify-apk-linux.sh` passed (v2/v3 signature, arm64-v8a, 16 KB LOAD alignment,
+  `android_main` / `ANativeActivity_onCreate` exports, manifest `lib_name`).
+
 ## v0.4.0 — 2026-11-09 (rebased on DeckCraft 0.17.0)
 
 | | |

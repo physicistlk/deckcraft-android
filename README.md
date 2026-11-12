@@ -6,10 +6,10 @@ and egui interface, packaged as a NativeActivity APK for sideloading on arm64 de
 | | |
 |---|---|
 | Upstream project | [`storytold/deckcraft`](https://github.com/storytold/deckcraft) — Apache-2.0 OR MIT |
-| Pinned commit | `fc51f46c` (upstream version `0.17.0`, tag `v0.17.0`) |
+| Pinned commit | `7cc73ab1` (upstream version `0.18.1`, tag `v0.18.1`) |
 | Android package | `ai.storyteller.deckcraft` |
-| Built APK | `deckcraft-0.17.0-arm64-v8a-20261109.apk` — 52.8 MB, arm64-v8a, signed with a local test key (2026-11-09) |
-| APK sha256 | `f1708cc5137bc8820b275cdc071280f124d761dc10878dcf9ad706c8f7d461d4` |
+| Built APK | `deckcraft-0.18.1-arm64-v8a-20261112.apk` — 52.8 MB, arm64-v8a, signed with a local test key (2026-11-12) |
+| APK sha256 | `008b5fd05aaaf7dfee07debc9c27a9bf4edcbcb49c99648db21f2766271fb79d` |
 | Upstream files changed | 7 tracked files plus 1 new (`save_dialogs.rs`) — see [`patches/`](patches/) |
 | New port crate | `apps/deckcraft-android/` — the shell crate plus resources |
 | Fonts | [`craft-fonts`](https://github.com/storytold/craft-fonts) @ `37827adc` (embedded at build time) |
@@ -41,7 +41,7 @@ from it; without the fonts a release build is refused).
 ```bash
 git clone https://github.com/storytold/deckcraft.git
 cd deckcraft
-git fetch --depth 1 origin fc51f46c
+git fetch --depth 1 origin 7cc73ab1
 git checkout FETCH_HEAD                        # the exact commit this port targets
 git apply -3 /path/to/0001-deckcraft-android-port.patch
 cp -r /path/to/deckcraft-android/apps/deckcraft-android apps/
@@ -75,7 +75,7 @@ environment earlier releases were built in.
 ## Install
 
 ```bash
-adb install -r deckcraft-0.17.0-arm64-v8a-20261109.apk
+adb install -r deckcraft-0.18.1-arm64-v8a-20261112.apk
 ```
 or copy the APK to the device and open it (installing from unknown sources must be allowed).
 
@@ -91,7 +91,7 @@ device or emulator as part of this build.
 
 | Claim | How it was checked | Result |
 |---|---|---|
-| `patches/…patch` applies to a clean checkout of the pin | fresh `git worktree` at `fc51f46c` + `git apply --check` | ✅ applies cleanly |
+| `patches/…patch` applies to a clean checkout of the pin | fresh `git worktree` at `7cc73ab1` + `git apply --check` | ✅ applies cleanly |
 | The port crate compiles for Android | `cargo check -p deckcraft-android --target aarch64-linux-android`, with `CRAFT_FONTS_REQUIRED=1` | ✅ exit 0 |
 | The port crate's own tests | `cargo test -p deckcraft-android --lib` with winit's host backends enabled (see `CHANGELOG.md`) | ✅ 16 pass |
 | APK is signed and is the right artifact | `apksigner verify --verbose`, `aapt2 dump badging`, `unzip -l`, `llvm-nm`, sha256 | ✅ v2/v3 signatures true, `native-code: 'arm64-v8a'`, package `ai.storyteller.deckcraft` |
