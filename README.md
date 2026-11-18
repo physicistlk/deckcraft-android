@@ -8,8 +8,8 @@ and egui interface, packaged as a NativeActivity APK for sideloading on arm64 de
 | Upstream project | [`storytold/deckcraft`](https://github.com/storytold/deckcraft) — Apache-2.0 OR MIT |
 | Pinned commit | `7cc73ab1` (upstream version `0.18.1`, tag `v0.18.1`) |
 | Android package | `ai.storyteller.deckcraft` |
-| Built APK | `deckcraft-0.18.1-arm64-v8a-20261112.apk` — 52.8 MB, arm64-v8a, signed with a local test key (2026-11-12) |
-| APK sha256 | `008b5fd05aaaf7dfee07debc9c27a9bf4edcbcb49c99648db21f2766271fb79d` |
+| Built APK | `deckcraft-0.18.1-arm64-v8a-20261118.apk` — 52.8 MB, arm64-v8a, signed with a local test key (2026-11-18) |
+| APK sha256 | `4fbc7c023f21b2cd1782caaeb08a21b613a044ccef502ae91f93951c848ef5e1` |
 | Upstream files changed | 7 tracked files plus 1 new (`save_dialogs.rs`) — see [`patches/`](patches/) |
 | New port crate | `apps/deckcraft-android/` — the shell crate plus resources |
 | Fonts | [`craft-fonts`](https://github.com/storytold/craft-fonts) @ `37827adc` (embedded at build time) |
@@ -75,7 +75,7 @@ environment earlier releases were built in.
 ## Install
 
 ```bash
-adb install -r deckcraft-0.18.1-arm64-v8a-20261112.apk
+adb install -r deckcraft-0.18.1-arm64-v8a-20261118.apk
 ```
 or copy the APK to the device and open it (installing from unknown sources must be allowed).
 
